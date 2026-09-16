@@ -1,0 +1,4 @@
+data/FIA/
+data/*.rds
+data/*.log
+.Rhistory

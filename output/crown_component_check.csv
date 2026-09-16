@@ -1,0 +1,4 @@
+"dbh_inches","height_ft","species","shasta_foliage_tonnes","noble_foliage_tonnes","shasta_branches_tonnes","noble_branches_tonnes","foliage_identical","branches_identical","package_version"
+10,40,"red fir (Shasta, California and noble)",0.0199140096974972,0.0199140096974972,0.0542076897882267,0.0559199475923941,TRUE,FALSE,"0.5.0"
+20,80,"red fir (Shasta, California and noble)",0.0640923042859687,0.0640923042859687,0.21287113264175,0.219803068866492,TRUE,FALSE,"0.5.0"
+30,120,"red fir (Shasta, California and noble)",0.126987345479308,0.126987345479308,0.45419258752752,0.469199146495087,TRUE,FALSE,"0.5.0"
