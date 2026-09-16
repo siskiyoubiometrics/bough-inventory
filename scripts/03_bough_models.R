@@ -11,14 +11,10 @@ fia_dir <- 'data/FIA'
 state <- 'OR'
 sources <- read.csv('data/sources.csv')
 forest_codes <- c(610)
-forest_names <- tibble(code = c(610, 611),
-  name = c('Rogue River portion', 'Siskiyou portion'))
-forest_name <- forest_names %>% filter(code %in% forest_codes)
-coverage <- paste0(paste(forest_name$name, collapse = ' and '),
-  ' of the Rogue River-Siskiyou National Forest (administrative forest code ',
-  paste(forest_codes, collapse = ', '), ')')
+ecoregion_subsections <- c('M242Bb', 'M242Be', 'M242Bg', 'M261Dh')
+district <- NA  ## FVS_DISTRICT is empty in this vintage.
+coverage <- 'High Cascades Ranger District proxy'
 reserved <- as.numeric(sources$value[sources$id == 'reserved'])
-district <- NA
 min_ht <- as.numeric(sources$value[sources$id == 'min_ht'])
 reach_ft <- 15
 ## Read fractions written as numerator/denominator in the source ledger.
@@ -37,12 +33,11 @@ green_wet <- as.numeric(sources$value[sources$id == 'green_wet'])
 green_ratio <- green_moderate
 kg_per_lb <- 0.45359237  ## Exact unit definition, not a fitted parameter.
 lb_per_ton <- 2000  ## US short ton throughout the outputs.
-spcd <- c(21, 20, 81, 119, 22, 15, 202, 122)
+spcd <- c(20, 21, 22, 15, 17, 81, 119, 202, 122)
 spp <- tibble(SPCD = spcd,
-  species = c('red fir (Shasta, California and noble)',
-              'red fir (Shasta, California and noble)', 'Incense-cedar',
-              'Western white pine', 'red fir (Shasta, California and noble)',
-              'White fir', 'Douglas-fir', 'Ponderosa pine'))
+  species = c(rep('Shasta red fir (with California and noble)', 3),
+              rep('White and grand fir', 2), 'Incense-cedar',
+              'Western white pine', 'Douglas-fir', 'Ponderosa pine'))
 tabs <- c('PLOT', 'PLOTGEOM', 'COND', 'TREE', 'POP_EVAL', 'POP_EVAL_TYP',
           'POP_EVAL_GRP', 'POP_PLOT_STRATUM_ASSGN', 'POP_ESTN_UNIT',
           'POP_STRATUM', 'TREE_GRM_COMPONENT', 'TREE_GRM_BEGIN',
@@ -53,24 +48,38 @@ tabs <- c('PLOT', 'PLOTGEOM', 'COND', 'TREE', 'POP_EVAL', 'POP_EVAL_TYP',
 ##=====
 ## Read the full sampling design to estimate forest resources.
 db <- readFIA(fia_dir, states = state, tables = tabs, nCores = 1)
+## Preserve both visits' plot assignments before clipping the evaluation.
+domain_plots <- db$PLOTGEOM %>% filter(FVS_LOC_CD %in% forest_codes)
+if (!is.na(district)) {
+  if (!any(domain_plots$FVS_DISTRICT == district, na.rm = TRUE)) {
+    stop('District has no populated assignments in this release.')
+  }
+  domain_plots <- domain_plots %>% filter(FVS_DISTRICT == district)
+  coverage <- paste('FIA district', district)
+}
+if (is.null(ecoregion_subsections) && is.na(district)) {
+  coverage <- paste('Administrative forest code', paste(forest_codes, collapse = ', '))
+}
+if (!is.null(ecoregion_subsections) && is.na(district) &&
+    (!identical(forest_codes, c(610)) ||
+     !setequal(ecoregion_subsections, c('M242Bb', 'M242Be', 'M242Bg', 'M261Dh')))) {
+  coverage <- 'Selected ecoregion proxy'
+}
 db <- clipFIA(db, mostRecent = TRUE)
-## Keep only FIA fields used below; do not reuse added source analysis columns.
+## Keep the recorded tree fields used in the crown and change calculations.
 db$TREE <- db$TREE %>%
   select(CN, PLT_CN, PREV_TRE_CN, CONDID, PREVCOND, SUBP, TREE,
          SPCD, STATUSCD, DIA, HT, CR, TPA_UNADJ, TREECLCD)
-## Reserved status covers wilderness and other reserved designations.
-## Excluding all reserved forest is a conservative exclusion.
+## Carry ECOSUBCD from PLOT onto COND for the common land selection.
+## rFIA applies forest status through landType, including growth transitions.
 db$COND <- db$COND %>%
-  mutate(bough_land = coalesce(COND_STATUS_CD == 1 & ADFORCD %in% forest_codes &
-                                RESERVCD == reserved, FALSE))
-if (!is.na(district)) {
-  if (!any(db$PLOTGEOM$FVS_DISTRICT == district, na.rm = TRUE)) {
-    stop('District has no populated assignments in this release.')
-  }
-  district_plots <- db$PLOTGEOM %>%
-    filter(FVS_DISTRICT == district) %>% pull(CN)
+  select(-any_of('ECOSUBCD')) %>%
+  left_join(db$PLOT %>% select(PLT_CN = CN, ECOSUBCD), by = 'PLT_CN') %>%
+  mutate(bough_land = coalesce(RESERVCD == reserved &
+                                PLT_CN %in% domain_plots$CN, FALSE))
+if (!is.null(ecoregion_subsections)) {
   db$COND$bough_land <- db$COND$bough_land &
-    db$COND$PLT_CN %in% district_plots
+    db$COND$ECOSUBCD %in% ecoregion_subsections
 }
 
 ##=====
@@ -88,7 +97,7 @@ shasta <- biomass(check_trees$dbh_inches, check_trees$height_ft,
 noble <- biomass(check_trees$dbh_inches, check_trees$height_ft,
                  rep(22, nrow(check_trees)), division = division)
 check <- check_trees %>%
-  mutate(species = 'red fir (Shasta, California and noble)',
+  mutate(species = 'Shasta red fir (with California and noble)',
          shasta_foliage_tonnes = shasta$dry_foliage,
          noble_foliage_tonnes = noble$dry_foliage,
          shasta_branches_tonnes = shasta$dry_branches,
@@ -169,7 +178,7 @@ if (any(trees$rule_foliage_only > trees$rule_boughs, na.rm = TRUE)) {
   stop('foliage_only mass exceeds boughs mass.')
 }
 settings <- list(fia_dir = fia_dir, state = state, forest_codes = forest_codes,
-                 coverage = coverage,
+                 coverage = coverage, ecoregion_subsections = ecoregion_subsections,
                  district = district, min_ht = min_ht, reach_ft = reach_ft,
                  green_ratio = green_ratio, green_dry = green_dry,
                  green_wet = green_wet, division = division,

@@ -7,7 +7,7 @@ library(tidyr)
 ##  Parameters ----
 ##=====
 fia_dir <- 'data/FIA'
-## Forest, district, height, reach, and moisture are inherited from script 03.
+## Domain, height, reach, and moisture are inherited from script 03.
 models <- readRDS(file.path(dirname(fia_dir), 'bough_models.rds'))
 spcd <- models$spp$SPCD
 metrics <- c('rule_boughs', 'rule_foliage_only', 'reach_boughs', 'reach_foliage_only')
@@ -64,15 +64,6 @@ x <- x %>%
          survivor = coalesce(CURR_TPA > 0 & !ingrowth, FALSE),
          linked = !is.na(rule_boughs_previous),
          missing_required_previous = (survivor | mortality | removal) & !linked)
-audit <- x %>% group_by(species) %>%
-  summarise(framework_records = n(),
-    matched_survivors = sum(survivor & linked),
-    ingrowth_records = sum(ingrowth), mortality_records = sum(mortality),
-    removal_records = sum(removal),
-    excluded_unlinked = sum(missing_required_previous),
-    excluded_plots = n_distinct(PLT_CN[missing_required_previous]),
-    .groups = 'drop')
-
 ##=====
 ##  Annual components on the same remeasured plots ----
 ##=====
@@ -112,52 +103,13 @@ totals <- customPSE(db, x = changes,
   xVars = c(net_change, survivor_change, gross_accrual, survivor_loss,
             ingrowth_gain, mortality_loss, removal_loss),
   xGrpBy = c(scenario, quantity), y = y, yVars = PROP_FOREST)
-write.csv(totals, 'output/regrowth_totals.csv', row.names = FALSE)
-support <- changes %>% group_by(species, scenario, quantity) %>%
-  summarise(change_plots = n_distinct(PLT_CN[net_change != 0]),
-    matched_plots = n_distinct(PLT_CN[survivor & linked]),
-    survivor_change_plots = n_distinct(PLT_CN[survivor_change != 0]),
-    gross_accrual_plots = n_distinct(PLT_CN[gross_accrual > 0]),
-    survivor_loss_plots = n_distinct(PLT_CN[survivor_loss < 0]),
-    ingrowth_mass_plots = n_distinct(PLT_CN[ingrowth_gain > 0]),
-    mortality_mass_plots = n_distinct(PLT_CN[mortality_loss > 0]),
-    removal_mass_plots = n_distinct(PLT_CN[removal_loss > 0]), .groups = 'drop')
-regrowth <- estimate %>%
-  transmute(YEAR, species, scenario, quantity,
-    net_green_tons_per_year = net_change_TOTAL,
-    net_total_se_percent = net_change_SE,
-    net_green_tons_acre_year = net_change_RATIO,
-    net_per_acre_se_percent = net_change_RATIO_SE,
-    survivor_green_tons_per_year = survivor_change_TOTAL,
-    survivor_total_se_percent = survivor_change_SE,
-    gross_accrual_green_tons_per_year = gross_accrual_TOTAL,
-    gross_accrual_total_se_percent = gross_accrual_SE,
-    survivor_loss_green_tons_per_year = survivor_loss_TOTAL,
-    survivor_loss_total_se_percent = survivor_loss_SE,
-    ingrowth_green_tons_per_year = ingrowth_gain_TOTAL,
-    ingrowth_total_se_percent = ingrowth_gain_SE,
-    mortality_green_tons_per_year = mortality_loss_TOTAL,
-    mortality_total_se_percent = mortality_loss_SE,
-    removal_green_tons_per_year = removal_loss_TOTAL,
-    removal_total_se_percent = removal_loss_SE,
-    nonreserved_growth_acres = PROP_FOREST_TOTAL,
-    framework_species_plots = nPlots_x, area_plots = nPlots_y) %>%
-  left_join(support, by = c('species', 'scenario', 'quantity')) %>%
-  left_join(audit, by = 'species')
 area_est <- customPSE(db, x = y, xVars = c(acres = PROP_FOREST),
   y = y, yVars = PROP_FOREST)
-write.csv(area_est, 'output/regrowth_area.csv', row.names = FALSE)
-regrowth <- regrowth %>%
-  mutate(area_se_percent = area_est$acres_SE,
-    allocation = models$settings$allocation,
-    green_ratio_used = models$settings$green_ratio,
-    notes = 'Observed-component net; unlinked survivors excluded; not postharvest recovery')
-write.csv(regrowth, 'output/regrowth_by_species.csv', row.names = FALSE, na = 'NA')
 
 ## Publish component totals, ratios and errors for species and combined.
 components <- bind_rows(estimate, totals %>% mutate(species = 'Combined')) %>%
   select(YEAR, species, scenario, quantity,
-    starts_with('net_change_'), starts_with('survivor_change_'),
+    starts_with('net_change_'),
     starts_with('gross_accrual_'), starts_with('survivor_loss_'),
     starts_with('ingrowth_gain_'), starts_with('mortality_loss_'),
     starts_with('removal_loss_')) %>%
@@ -167,31 +119,25 @@ components <- bind_rows(estimate, totals %>% mutate(species = 'Combined')) %>%
   rename(green_tons_per_year = TOTAL, total_se_percent = SE,
     green_tons_acre_year = RATIO, per_acre_se_percent = RATIO_SE) %>%
   mutate(total_se_tons_per_year = abs(green_tons_per_year) * total_se_percent / 100,
-    per_acre_se_tons_year = abs(green_tons_acre_year) * per_acre_se_percent / 100)
-write.csv(components, 'output/regrowth_components.csv', row.names = FALSE, na = 'NA')
+    per_acre_se_tons_year = abs(green_tons_acre_year) * per_acre_se_percent / 100,
+    area_plots = area_est$nPlots_y, nonreserved_acres = area_est$acres_TOTAL,
+    area_se_percent = area_est$acres_SE,
+    coverage = models$settings$coverage, allocation = models$settings$allocation,
+    green_ratio_used = models$settings$green_ratio)
+## Count nonzero component plots and missing links within each group.
+support <- changes %>%
+  pivot_longer(c(net_change, gross_accrual, survivor_loss, ingrowth_gain,
+                 mortality_loss, removal_loss),
+    names_to = 'component', values_to = 'annual_ton')
+support <- bind_rows(support, support %>% mutate(species = 'Combined')) %>%
+  group_by(species, scenario, quantity, component) %>%
+  summarise(component_plots = n_distinct(PLT_CN[annual_ton != 0]),
+    excluded_unlinked = sum(missing_required_previous), .groups = 'drop')
+components <- components %>%
+  left_join(support, by = c('species', 'scenario', 'quantity', 'component'))
+write.csv(components, 'output/change.csv', row.names = FALSE, na = 'NA')
 
-##=====
-##  Sample counts and software ----
-##=====
-standing <- read.csv('output/standing_by_species.csv')
-counts <- standing %>% filter(route == 'A', scenario == 'rule', quantity == 'boughs') %>%
-  select(species, standing_area_plots = area_plots,
-    standing_species_plots = species_plots,
-    standing_positive_rule_plots = positive_mass_plots,
-    standing_tree_records = tree_records) %>%
-  left_join(regrowth %>% filter(scenario == 'rule', quantity == 'boughs') %>%
-    select(species, growth_area_plots = area_plots, framework_species_plots,
-      matched_plots, change_plots, matched_survivors, ingrowth_records,
-      mortality_records, removal_records, excluded_unlinked, excluded_plots),
-    by = 'species')
-write.csv(counts, 'output/plot_counts.csv', row.names = FALSE)
-saveRDS(list(changes = changes, area = y, regrowth = regrowth),
+## Retain local records for the sample checks in script 06.
+saveRDS(list(pairs = x, changes = changes, area = y),
   file.path(dirname(fia_dir), 'regrowth.rds'))
-software <- tibble(package = c('R', 'dplyr', 'tidyr', 'ggplot2', 'knitr', 'scales', 'rFIA', 'merchandiser'),
-  version = c(as.character(getRversion()), as.character(packageVersion('dplyr')),
-    as.character(packageVersion('tidyr')), as.character(packageVersion('ggplot2')),
-    as.character(packageVersion('knitr')), as.character(packageVersion('scales')),
-    as.character(packageVersion('rFIA')),
-    as.character(packageVersion('merchandiser'))))
-write.csv(software, 'output/software_versions.csv', row.names = FALSE)
-print(regrowth %>% filter(scenario == 'rule'))
+print(components %>% filter(scenario == 'rule', quantity == 'boughs'))

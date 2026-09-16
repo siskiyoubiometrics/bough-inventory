@@ -1,7 +1,8 @@
-"species","standing_area_plots","standing_species_plots","standing_positive_rule_plots","standing_tree_records","growth_area_plots","framework_species_plots","matched_plots","change_plots","matched_survivors","ingrowth_records","mortality_records","removal_records","excluded_unlinked","excluded_plots"
-"Douglas-fir",265,231,140,3059,234,205,201,145,2046,410,128,39,3,3
-"Incense-cedar",265,81,27,278,234,71,65,28,187,37,13,1,2,2
-"Ponderosa pine",265,83,26,461,234,77,71,29,319,48,55,1,1,1
-"Western white pine",265,37,13,93,234,42,31,15,59,18,29,0,1,1
-"White fir",265,179,118,1968,234,162,146,115,1401,185,169,7,3,3
-"red fir (Shasta, California and noble)",265,59,28,759,234,56,53,31,588,73,76,0,5,4
+"species","standing_area_plots","standing_species_plots","standing_positive_mass_plots","standing_tree_records","framework_species_plots","matched_plots","matched_survivors","ingrowth_records","mortality_records","removal_records","excluded_unlinked","excluded_plots","growth_area_plots"
+"Douglas-fir",184,160,99,2005,148,143,1375,300,90,39,1,1,168
+"Incense-cedar",184,64,22,232,56,51,152,31,11,8,2,2,168
+"Ponderosa pine",184,50,16,276,46,41,189,33,46,1,1,1,168
+"Shasta red fir (with California and noble)",184,52,24,633,49,46,501,44,67,0,4,3,168
+"Western white pine",184,33,10,79,38,28,48,18,29,0,1,1,168
+"White and grand fir",184,148,97,1526,138,124,1157,153,144,54,1,1,168
+"Combined",184,182,137,4751,166,164,3422,579,387,102,10,7,168
